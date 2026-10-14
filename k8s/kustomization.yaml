@@ -1,0 +1,41 @@
+# loglens-sut 배포 (kubectl 내장 kustomize).
+#
+#   kubectl apply -k k8s
+#
+# 자주 바꾸는 것은 이 파일과 config.env 두 곳뿐이다.
+#   이미지 태그  : 아래 images[].newTag
+#   레플리카 수  : 아래 replicas[].count
+#   튜닝 값      : config.env  (README 6절: 재배포 없이 바꾸는 방법)
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: sut
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+
+images:
+  - name: loglens-sut
+    newName: <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/loglens-sut
+    newTag: "0.1.0"
+
+replicas:
+  - name: loglens-sut
+    count: 2
+
+# 튜닝 값 ConfigMap. 이름에 해시를 붙이지 않는다.
+# 고정 이름이어야 kubectl patch / edit 로 값만 바꾸고 rollout restart 할 수 있다.
+configMapGenerator:
+  - name: loglens-sut-config
+    envs:
+      - config.env
+    options:
+      disableNameSuffixHash: true
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: loglens
+    includeSelectors: false

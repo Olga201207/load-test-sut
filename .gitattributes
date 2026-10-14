@@ -1,0 +1,8 @@
+# gradlew 는 컨테이너(sh)에서 실행되므로 LF 로 고정한다. Dockerfile 에서도 CR 을 지우지만 원본부터 맞춘다.
+gradlew       text eol=lf
+*.sh          text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+gradle/wrapper/gradle-wrapper.jar binary

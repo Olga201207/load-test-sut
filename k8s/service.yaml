@@ -1,0 +1,17 @@
+# ClusterIP 만. LoadBalancer 는 쓰지 않는다 (AWS 로드밸런서가 생겨 loglens-infra destroy 가 막힌다).
+# 러너가 쓰는 주소: http://loglens-sut.sut.svc.cluster.local:8080
+apiVersion: v1
+kind: Service
+metadata:
+  name: loglens-sut
+  labels:
+    app.kubernetes.io/name: loglens-sut
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: loglens-sut
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP

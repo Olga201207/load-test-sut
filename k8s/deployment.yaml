@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loglens-sut
+  labels:
+    app.kubernetes.io/name: loglens-sut
+spec:
+  # 레플리카 수는 kustomization.yaml 의 replicas 가 정한다.
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loglens-sut
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # 하나씩 새로 띄우고 Ready 가 된 뒤 옛것을 내린다. 설정 변경 롤아웃 중에도 2개가 유지된다.
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loglens-sut
+    spec:
+      nodeSelector:
+        role: platform
+
+      # 두 파드를 가능하면 서로 다른 platform 노드에 둔다. 한 노드에 몰리면 Prometheus 가 있는 노드의 CPU 여유가 줄어든다.
+      # 노드가 하나뿐이어도 뜨도록 ScheduleAnyway.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: loglens-sut
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # preStop 5초 + Spring graceful shutdown 최대 30초(SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE) + 여유
+      terminationGracePeriodSeconds: 45
+
+      containers:
+        - name: app
+          # 실제 주소와 태그는 kustomization.yaml 의 images 가 바꾼다.
+          image: loglens-sut
+          # 태그가 IMMUTABLE 이라 같은 태그는 같은 이미지다. 노드에 있으면 다시 받지 않는다.
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          # 튜닝 값 전부 (config.env). 바꾼 뒤에는 rollout restart.
+          envFrom:
+            - configMapRef:
+                name: loglens-sut-config
+
+          # platform 노드(m6i.large, allocatable 약 1930m / 7GiB)를 Prometheus 등과 나눠 쓴다 (README 6절 계산).
+          #   cpu    request 500m : 2개가 한 노드에 몰려도 Prometheus 노드에 들어간다
+          #   cpu    limit   1    : SUT 용량을 "파드당 1코어"로 고정해 측정을 재현 가능하게 하고,
+          #                         같은 노드의 Prometheus 가 CPU 를 뺏기지 않게 한다
+          #   memory request = limit 1Gi : 메모리는 오버커밋하지 않는다. 힙은 이 값의 60% (config.env)
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+          # Spring Boot 기동(limit 1코어 기준 수 초~수십 초) 동안 liveness 가 파드를 죽이지 않게 한다.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          # 종료가 시작되면 readiness 가 먼저 OUT_OF_SERVICE 가 되어 새 요청이 끊긴다.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # 엔드포인트 제거가 kube-proxy 에 퍼질 시간을 준다. 이게 없으면 롤아웃 중 러너 요청 일부가 실패한다.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # 루트 파일시스템이 읽기 전용이라 Tomcat 작업 디렉터리(java.io.tmpdir)만 쓰기 가능하게 둔다.
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

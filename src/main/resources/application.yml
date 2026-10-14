@@ -1,0 +1,51 @@
+# 튜닝 파라미터는 전부 환경변수로 덮어쓸 수 있다 (Spring relaxed binding: OS 환경변수 > 이 파일).
+# 이름 규칙: 점(.)과 하이픈(-)을 밑줄로, 대문자로.
+#   server.tomcat.threads.max  ->  SERVER_TOMCAT_THREADS_MAX
+# 아래 값은 max-keep-alive-requests 를 빼면 Spring Boot / Tomcat 기본값과 같다. 비교 측정의 기준선을 드러내려고 명시한다.
+
+spring:
+  application:
+    name: loglens-sut
+  threads:
+    virtual:
+      # SPRING_THREADS_VIRTUAL_ENABLED (기본 false)
+      # true 면 톰캣이 요청마다 가상 스레드를 쓴다. 앱 전체 요청 처리에 적용된다 (/delay 만이 아니다).
+      # 이때 server.tomcat.threads.max / min-spare 는 무시되고,
+      # 동시 처리 상한은 max-connections + accept-count 로 넘어간다.
+      enabled: false
+  lifecycle:
+    # SPRING_LIFECYCLE_TIMEOUT_PER_SHUTDOWN_PHASE: 종료 시 처리 중인 요청을 기다리는 최대 시간
+    timeout-per-shutdown-phase: 30s
+
+server:
+  port: 8080
+  shutdown: graceful
+  tomcat:
+    threads:
+      # SERVER_TOMCAT_THREADS_MAX: 플랫폼 스레드 모드의 동시 처리 상한
+      max: 200
+      # SERVER_TOMCAT_THREADS_MIN_SPARE
+      min-spare: 10
+    # SERVER_TOMCAT_MAX_CONNECTIONS: 동시에 열어 둘 수 있는 TCP 연결 수 (keep-alive 포함)
+    max-connections: 8192
+    # SERVER_TOMCAT_ACCEPT_COUNT: max-connections 를 넘었을 때 OS 수준 대기열 길이
+    accept-count: 100
+    # SERVER_TOMCAT_MAX_KEEP_ALIVE_REQUESTS: 연결 하나로 처리할 최대 요청 수. 넘으면 서버가 연결을 닫는다.
+    # k6 는 keep-alive 를 쓰므로 Tomcat 기본값(100)이면 100 요청마다 재연결이 측정에 섞인다.
+    # 그래서 기본값을 -1(무제한)로 바꿨다. 재연결 비용을 일부러 보고 싶을 때만 100 등으로 준다.
+    max-keep-alive-requests: -1
+    # SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT: 미지정 시 connection-timeout 과 같다
+    # SERVER_TOMCAT_CONNECTION_TIMEOUT
+    connection-timeout: 20s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      # /actuator/health/liveness, /actuator/health/readiness 도 연다 (쿠버네티스에서는 자동으로도 켜진다).
+      probes:
+        enabled: true

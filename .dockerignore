@@ -1,0 +1,8 @@
+# 빌드 컨텍스트에는 Gradle 파일과 src 만 있으면 된다.
+.git/
+.gradle/
+.idea/
+build/
+k8s/
+*.md
+*.iml
